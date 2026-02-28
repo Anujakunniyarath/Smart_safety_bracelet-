@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Dashboard</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<style>
+body {
+  font-family: 'Poppins', sans-serif;
+  background: linear-gradient(135deg, #fce4ec, #f3e5f5);
+  margin: 0;
+  padding: 20px;
+}
+.container {
+  max-width: 700px;
+  margin: auto;
+  background: white;
+  padding: 25px;
+  border-radius: 16px;
+}
+.section { margin-top: 25px; }
+input {
+  width: 100%;
+  padding: 10px;
+  margin-top: 5px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
+button {
+  margin-top: 15px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #e91e63;
+  color: white;
+  cursor: pointer;
+}
+.contact-item {
+  background: #f9f9f9;
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+.logout { background: #555; }
+.message { color: green; }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>User Dashboard</h2>
+
+<!-- Profile Section -->
+<div class="section">
+<h3>Profile</h3>
+<p><strong>Name:</strong> <span id="userName"></span></p>
+<p><strong>Email:</strong> <span id="userEmail"></span></p>
+<p><strong>Phone:</strong> <span id="userPhone"></span></p>
+<p><strong>Bracelet ID:</strong> <span id="braceletId"></span></p>
+</div>
+
+<!-- Bracelet Control Section -->
+<div class="section">
+<h3>Bracelet Control</h3>
+<input type="text" id="braceletInput" placeholder="Enter Bracelet ID">
+<button onclick="activateBracelet()">Activate Bracelet</button>
+<button onclick="deactivateBracelet()" style="background:#555;">Deactivate Bracelet</button>
+<div id="braceletMsg" class="message" style="color:blue;"></div>
+</div>
+
+<!-- Change Password -->
+<div class="section">
+<h3>Change Password</h3>
+<input type="password" id="newPassword" placeholder="New Password">
+<button onclick="changePassword()">Update Password</button>
+<div class="message" id="passMsg"></div>
+</div>
+
+<!-- Emergency Contacts -->
+<div class="section">
+<h3>Emergency Contacts</h3>
+<input type="text" id="contactName" placeholder="Name">
+<input type="text" id="contactPhone" placeholder="Phone">
+<button onclick="addContact()">Add Contact</button>
+<div id="contactList"></div>
+</div>
+
+<!-- SOS Simulation Section -->
+<div class="section">
+<h3>Emergency SOS</h3>
+<button id="sosBtn" style="background:#ff1744;color:white;padding:12px 20px;border:none;border-radius:8px;cursor:pointer;">
+🚨 Send SOS
+</button>
+<div id="sosMsg" class="message" style="color:red;"></div>
+</div>
+
+<!-- Logout -->
+<div class="section">
+<button class="logout" onclick="logout()">Logout</button>
+</div>
+
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc, updateDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, updatePassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDi6eNv4WEZt60UMCcpm2enC83X4gz1eew",
+  authDomain: "shesafe-hackathon.firebaseapp.com",
+  projectId: "shesafe-hackathon",
+  storageBucket: "shesafe-hackathon.firebasestorage.app",
+  messagingSenderId: "48319235039",
+  appId: "1:48319235039:web:12098ce198031b48ad3a6a"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+let userRef;
+let userData = { contacts: [] };
+
+// ✅ CHECK LOGIN
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    window.location.href = "userlogin.html";
+    return;
+  }
+
+  localStorage.setItem("loggedInUserId", user.uid);
+
+  userRef = doc(db, "account_create", user.uid);
+  const docSnap = await getDoc(userRef);
+
+  if (docSnap.exists()) {
+    userData = docSnap.data();
+
+    document.getElementById("userName").innerText = userData.name;
+    document.getElementById("userEmail").innerText = userData.email;
+    document.getElementById("userPhone").innerText = userData.phone;
+    document.getElementById("braceletId").innerText = userData.braceletId || "Not assigned";
+
+    if (!userData.contacts) userData.contacts = [];
+    renderContacts();
+
+    // Disable SOS if bracelet inactive
+    const sosBtnEl = document.getElementById("sosBtn");
+    sosBtnEl.disabled = !userData.braceletActive;
+    sosBtnEl.style.opacity = userData.braceletActive ? "1" : "0.5";
+  }
+});
+
+// ✅ CHANGE PASSWORD
+window.changePassword = async function () {
+  const newPassword = newPassword.value.trim();
+  if (!newPassword) return;
+
+  await updatePassword(auth.currentUser, newPassword);
+  passMsg.innerText = "Password updated successfully";
+};
+
+// ✅ ADD CONTACT
+window.addContact = async function () {
+  const name = contactName.value.trim();
+  const phone = contactPhone.value.trim();
+  if (!name || !phone) return;
+
+  userData.contacts.push({ name, phone });
+  await updateDoc(userRef, { contacts: userData.contacts });
+
+  contactName.value = "";
+  contactPhone.value = "";
+  renderContacts();
+};
+
+// ✅ RENDER CONTACTS
+function renderContacts() {
+  contactList.innerHTML = "";
+  userData.contacts.forEach((c, i) => {
+    contactList.innerHTML += `
+    <div class="contact-item">
+      <strong>${c.name}</strong> - ${c.phone}<br>
+      <button onclick="editContact(${i})">Edit</button>
+      <button onclick="deleteContact(${i})">Delete</button>
+    </div>`;
+  });
+}
+
+// ✅ EDIT CONTACT
+window.editContact = async function (i) {
+  const name = prompt("Edit name", userData.contacts[i].name);
+  const phone = prompt("Edit phone", userData.contacts[i].phone);
+  if (!name || !phone) return;
+
+  userData.contacts[i] = { name, phone };
+  await updateDoc(userRef, { contacts: userData.contacts });
+  renderContacts();
+};
+
+// ✅ DELETE CONTACT
+window.deleteContact = async function (i) {
+  userData.contacts.splice(i, 1);
+  await updateDoc(userRef, { contacts: userData.contacts });
+  renderContacts();
+};
+
+// ✅ LOGOUT
+window.logout = async function () {
+  await signOut(auth);
+  localStorage.removeItem("loggedInUserId");
+  window.location.href = "userlogin.html";
+};
+
+// ✅ HELPER TO GET CONTACTS SUBCOLLECTION
+function getContactsRef() {
+  return collection(db, "account_create", auth.currentUser.uid, "contacts");
+}
+
+// ✅ SOS BUTTON WITH SIMULATED SMS AND NOTIFICATION
+const sosBtn = document.getElementById("sosBtn");
+const sosMsg = document.getElementById("sosMsg");
+
+// Request notification permission
+if ("Notification" in window && Notification.permission !== "granted") {
+  Notification.requestPermission();
+}
+
+sosBtn.addEventListener("click", async () => {
+  if (!auth.currentUser) return;
+
+  try {
+    // 1️⃣ Update SOS status
+    await updateDoc(doc(db, "account_create", auth.currentUser.uid), {
+      lastSOS: new Date(),
+      sosActive: true
+    });
+
+    // 2️⃣ Fetch all emergency contacts
+    const contactsSnap = await getDocs(getContactsRef());
+    contactsSnap.forEach((cDoc) => {
+      const c = cDoc.data();
+
+      // Simulate sending SMS
+      console.log(`SMS to ${c.name} (${c.phone}): HELP! ${auth.currentUser.email} triggered SOS.`);
+
+      // Show browser notification
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("SOS Sent", {
+          body: `SMS sent to ${c.name} (${c.phone})`,
+          icon: "https://cdn-icons-png.flaticon.com/512/1828/1828665.png"
+        });
+      }
+    });
+
+    sosMsg.innerText = "SOS sent to all emergency contacts!";
+    setTimeout(() => (sosMsg.innerText = ""), 4000);
+
+  } catch (err) {
+    console.error("Error sending SOS:", err);
+    sosMsg.innerText = "Failed to send SOS!";
+    setTimeout(() => (sosMsg.innerText = ""), 4000);
+  }
+});
+
+// ✅ ACTIVATE BRACELET
+window.activateBracelet = async function () {
+  const braceletId = document.getElementById("braceletInput").value.trim();
+  if (!braceletId) return;
+
+  try {
+    await updateDoc(userRef, {
+      braceletId: braceletId,
+      braceletActive: true
+    });
+    document.getElementById("braceletId").innerText = braceletId;
+    document.getElementById("braceletMsg").innerText = "Bracelet activated successfully!";
+
+    // Enable SOS button
+    sosBtn.disabled = false;
+    sosBtn.style.opacity = "1";
+
+    setTimeout(() => document.getElementById("braceletMsg").innerText = "", 3000);
+  } catch (err) {
+    console.error("Error activating bracelet:", err);
+    document.getElementById("braceletMsg").innerText = "Failed to activate bracelet!";
+    setTimeout(() => document.getElementById("braceletMsg").innerText = "", 3000);
+  }
+};
+
+// ✅ DEACTIVATE BRACELET
+window.deactivateBracelet = async function () {
+  try {
+    await updateDoc(userRef, {
+      braceletActive: false
+    });
+    document.getElementById("braceletMsg").innerText = "Bracelet deactivated!";
+
+    // Disable SOS button
+    sosBtn.disabled = true;
+    sosBtn.style.opacity = "0.5";
+
+    setTimeout(() => document.getElementById("braceletMsg").innerText = "", 3000);
+  } catch (err) {
+    console.error("Error deactivating bracelet:", err);
+    document.getElementById("braceletMsg").innerText = "Failed to deactivate bracelet!";
+    setTimeout(() => document.getElementById("braceletMsg").innerText = "", 3000);
+  }
+};
+
+</script>
+
+</body>
+</html>
